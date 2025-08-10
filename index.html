@@ -5,105 +5,82 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>灯（トモリ）と乾杯♪</title>
   <style>
-    :root { --bg:#111; --panel:#1b1b1b; --text:#eee; --muted:#aaa; --acc:#e5bf5b; }
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"ヒラギノ角ゴ ProN","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif}
-    .wrap{max-width:900px;margin:0 auto;padding:24px}
-    h1{font-weight:700;margin:0 0 8px}
-    .hint{color:var(--muted);margin:0 0 16px}
-    .chat{height:60vh;min-height:420px;background:var(--panel);border-radius:16px;padding:16px;overflow:auto;box-shadow:0 0 0 1px #222 inset}
-    .row{display:flex;gap:12px;margin:12px 0}
-    .me{justify-content:flex-end}
-    .bot .bubble{background:#242424;border:1px solid #2b2b2b}
-    .me  .bubble{background:#2b2b2b;border:1px solid #3a3a3a}
-    .bubble{max-width:72%;padding:12px 14px;border-radius:14px;line-height:1.6;white-space:pre-wrap}
-    .meta{font-size:12px;color:var(--muted);margin-top:2px}
-    form{display:flex;gap:10px;margin-top:14px}
-    textarea{flex:1;background:#191919;color:var(--text);border:1px solid #2a2a2a;border-radius:12px;padding:12px;resize:none;min-height:48px;line-height:1.6}
-    button{background:var(--acc);color:#231a00;border:0;border-radius:12px;padding:0 18px;font-weight:700;cursor:pointer}
-    button:disabled{opacity:.6;cursor:not-allowed}
-    .sys{font-size:12px;color:#bbb;margin-top:8px}
-    .badge{background:#2a2a2a;border:1px solid #3a3a3a;border-radius:999px;padding:4px 10px;font-size:12px;margin-left:8px}
+    body{margin:0;background:#0f0f12;color:#eee;font-family:system-ui, -apple-system, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif}
+    header{padding:20px 16px;border-bottom:1px solid #222;display:flex;gap:8px;align-items:center}
+    .pill{font-size:12px;padding:4px 8px;border:1px solid #444;border-radius:999px;color:#bbb}
+    #log{max-width:900px;margin:24px auto;padding:0 16px;min-height:55vh}
+    .msg{max-width:720px;margin:10px 0;padding:12px 14px;border-radius:12px;line-height:1.7;white-space:pre-wrap}
+    .me{background:#1f2937;margin-left:auto}
+    .bot{background:#131722;border:1px solid #1e2230}
+    form{position:sticky;bottom:0;background:#0f0f12;padding:12px 16px;border-top:1px solid #222;display:flex;gap:8px}
+    textarea{flex:1;min-height:52px;max-height:160px;resize:vertical;background:#0c0c10;color:#eee;border:1px solid #333;border-radius:10px;padding:12px;line-height:1.6}
+    button{background:#3b82f6;border:none;color:#fff;padding:0 16px;border-radius:10px;font-weight:600}
+    .hint{color:#9aa4b2;font-size:13px;margin:4px 0 0 16px}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>灯（トモリ）と乾杯♪ <span id="stageBadge" class="badge"></span></h1>
-    <p class="hint">例：一杯飲みながら話していいですか？</p>
+  <header>
+    <h1 style="margin:0;font-size:22px;">灯（トモリ）と乾杯♪</h1>
+    <span id="badge" class="pill">ご案内中</span>
+  </header>
 
-    <div id="chat" class="chat" aria-live="polite"></div>
+  <div id="log"></div>
+  <div class="hint">例：一杯飲みながら話していいですか？</div>
 
-    <form id="form">
-      <textarea id="input" placeholder="メッセージを入力…" rows="2"></textarea>
-      <button id="send" type="submit">送信</button>
-    </form>
-
-    <p class="sys">※ 滞在時間の目安は30分です。初回は年齢とご利用条件を確認します。</p>
-  </div>
+  <form id="f">
+    <textarea id="t" placeholder="メッセージを入力…"></textarea>
+    <button id="send">送信</button>
+  </form>
 
   <script>
-    // --------- 会話段階（年齢→反社→本編→終了） ----------
-    let stage = localStorage.getItem('tomori_stage') || 'age'; // 'age'|'crime'|'main'|'end'
-    let pending = false;
+    const log = document.getElementById('log');
+    const t   = document.getElementById('t');
+    const f   = document.getElementById('f');
+    const badge = document.getElementById('badge');
 
-    const chat   = document.getElementById('chat');
-    const form   = document.getElementById('form');
-    const input  = document.getElementById('input');
-    const sendBtn= document.getElementById('send');
-    const badge  = document.getElementById('stageBadge');
+    let stage = 'age';              // サーバの状態機械と同期
+    const conversation_id = crypto.randomUUID();
 
-    const stageLabel = s => ({age:'年齢確認',crime:'ご利用条件',main:'ご案内中',end:'終了'})[s] || s;
-    const updateBadge = () => badge.textContent = stageLabel(stage);
-    updateBadge();
-
-    const scrollBottom = () => chat.scrollTop = chat.scrollHeight;
-
-    function row(role, text){
-      const r = document.createElement('div');
-      r.className = 'row ' + (role === 'user' ? 'me' : 'bot');
-      const b = document.createElement('div');
-      b.className = 'bubble';
-      b.textContent = text;
-      r.appendChild(b);
-      chat.appendChild(r);
-      scrollBottom();
-    }
-
-    // 初回挨拶（年齢確認をAPI側でも出すが、空白だと不安なので表示のみ）
-    if (!localStorage.getItem('tomori_boot')) {
-      row('assistant','いらっしゃいませ。お酒は20歳以上のお客様のみご案内できます。お客様は20歳以上でいらっしゃいますか？');
-      localStorage.setItem('tomori_boot','1');
-    }
-
-    form.addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      if (pending) return;
-      const text = input.value.trim();
-      if (!text) return;
-
-      pending = true; sendBtn.disabled = true;
-      row('user', text);
-
-      try{
-        const r = await fetch('/api/tomori', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','Cache-Control':'no-store'},
-          cache:'no-store',
-          body: JSON.stringify({ user_name:'お客様', user_text:text, stage })
-        });
-        const data = await r.json().catch(()=>({reply:'（接続エラーです）'}));
-        if (data.reply) row('assistant', data.reply);
-        if (data.nextStage) {
-          stage = data.nextStage;
-          localStorage.setItem('tomori_stage', stage);
-          updateBadge();
-        }
-      } catch(err){
-        row('assistant','（接続が不安定です。少し置いてお試しください）');
-      } finally{
-        input.value = '';
-        pending = false; sendBtn.disabled = false;
-      }
+    addBot("接続しています…");
+    // ヘルスチェック（GET）
+    fetch('/api/tomori').then(() => {
+      log.lastChild.remove();
+      addBot("いらっしゃいませ。お酒は20歳以上のお客様のみご案内できます。お客様は20歳以上でいらっしゃいますか？");
+    }).catch(() => {
+      log.lastChild.textContent = "（接続エラーです）";
     });
+
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = t.value.trim();
+      if (!text) return;
+      addMe(text);
+      t.value = '';
+      const reply = await callApi(text);
+      addBot(reply.reply);
+      stage = reply.nextStage || stage;
+      badge.textContent = stage === 'main' ? '会話中' : 'ご案内中';
+    });
+
+    function addMe(s){ add(s,'me'); }
+    function addBot(s){ add(s,'bot'); }
+    function add(s,cls){
+      const div = document.createElement('div');
+      div.className = `msg ${cls}`;
+      div.textContent = s;
+      log.appendChild(div);
+      window.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
+    }
+
+    async function callApi(user_text){
+      const r = await fetch('/api/tomori', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ conversation_id, user_text, user_name: 'お客様', stage })
+      });
+      if (!r.ok) return { reply: 'ただいま混み合っています。少し置いてお試しください。', nextStage: stage };
+      return await r.json();
+    }
   </script>
 </body>
 </html>
