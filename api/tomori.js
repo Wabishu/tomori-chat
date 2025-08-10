@@ -34,16 +34,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2) 反社確認（ここもLLMを呼ばない）
-    if (stage === 'crime') {
-      if (yes.test(user_text)) {
-        stage = 'main';
-        return res.status(200).json({
-          reply: 'ありがとうございます。それでは今宵も乾杯♪ どのようなお酒をお探しですか？（味わい・ご予算・飲み方を教えていただけるとご提案がスムーズです）',
-          nextStage: stage
-        });
-      }
-      if (no.test(user_text)) {
+    if (no.test(user_text)) {
         stage = 'end';
         return res.status(200).json({
           reply: '申し訳ございません。当店のご利用規約によりご案内できません。どうかご容赦願えませんでしょうか。',
