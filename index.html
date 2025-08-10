@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>灯（トモリ）チャット</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto; margin:0; background:#f6f6f8}
+  .wrap{max-width:680px;margin:0 auto; padding:16px}
+  h1{font-size:18px;margin:12px 0}
+  .box{background:#fff;border:1px solid #e5e5ea;border-radius:12px; height:60vh; padding:12px; overflow:auto}
+  .row{margin:10px 0; display:flex; gap:10px}
+  .me{justify-content:flex-end}
+  .b{max-width:80%; padding:10px 12px; border-radius:12px; line-height:1.5; white-space:pre-wrap}
+  .me .b{background:#DCF3FF; border:1px solid #c7e7ff}
+  .ai .b{background:#fff; border:1px solid #e8e8ee}
+  .input{display:flex; gap:8px; margin-top:12px}
+  textarea{flex:1; resize:none; height:64px; padding:10px; border:1px solid #d9d9e0; border-radius:10px}
+  button{padding:0 16px; border:1px solid #0a7cff; background:#0a7cff; color:#fff; border-radius:10px; font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>灯（トモリ）に相談</h1>
+  <div id="chat" class="box"></div>
+  <div class="input">
+    <textarea id="msg" placeholder="例：辛口で魚に合う日本酒を教えて"></textarea>
+    <button id="send">送信</button>
+  </div>
+</div>
+<script>
+const chat = document.getElementById('chat');
+const msg  = document.getElementById('msg');
+const send = document.getElementById('send');
+
+function add(side, text){
+  const row = document.createElement('div');
+  row.className = `row ${side}`;
+  const b = document.createElement('div');
+  b.className = 'b';
+  b.textContent = text;
+  row.appendChild(b);
+  chat.appendChild(row);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function callTomori(text){
+  const r = await fetch('/api/tomori', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      conversation_id: 'web-'+Date.now(),
+      user_text: text,
+      user_name: 'サイト訪問者'
+    })
+  });
+  const data = await r.json().catch(()=>({reply:'（通信に失敗しました）'}));
+  return data.reply || '（少し混み合っています）';
+}
+
+send.onclick = async ()=>{
+  const t = msg.value.trim();
+  if(!t) return;
+  add('me', t);
+  msg.value = '';
+  add('ai', '…考え中');
+  const last = chat.lastChild.querySelector('.b');
+  last.textContent = await callTomori(t);
+};
+
+msg.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault(); send.click();
+  }
+});
+</script>
+</body>
+</html>
