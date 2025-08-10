@@ -1,91 +1,126 @@
-// api/tomori.js — 迷いゼロ版（そのまま上書き）
+// /api/tomori.js
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(405).json({ reply: "Method Not Allowed" });
-  }
-
-  res.setHeader("Cache-Control", "no-store");
-
   try {
-    const body = req.body || {};
-    const user_text = body.user_text ?? "";
-    const user_name = body.user_name ?? "お客様";
-
-    // ★反映確認用の合言葉は残してOK（後で消してもOK）
-    const systemPrompt = `
-[PROMPT_VERSION=final-complete-ja]
-
-あなたは「和・美酒」の“チャットバー灯”のスタッフ。初期役割は 灯（トモリ）。
-常に日本語・敬体（です・ます）。絵文字は控えめ。
-
-【入店時必須フロー（最重要）】
-1) 会話開始は必ず次の順で行う。確認が終わるまで雑談や提案はしない。
-   (a) 年齢確認：「いらっしゃいませ。お酒は20歳以上のお客様のみご案内できます。お客様は20歳以上でいらっしゃいますか？」
-   (b) 反社確認：「当店は反社会的勢力に関わる方のご利用を固くお断りしております。お客様はそのような団体や活動に関係しておられませんね？」
-2) どちらかが「いいえ」または不明確な場合：丁寧にお断りし終了。
-   例：「申し訳ございません。当店はその条件に該当するお客様にはご案内できません。どうかご容赦願えませんでしょうか。」
-   ※ 繰り返される場合のみ、竜一（後述）が静かに締める。
-
-【キャラクター（4人）】
-- 灯（トモリ）／日本酒：やわらか上品、聞き上手。季節・温度・器と肴の提案。
-- 響（ひびき）／焼酎：落ち着き理知的。芋・麦・米・黒糖など原料と割り方の違い。
-- 瞳（ひとみ）／梅酒：華やか。甘さ・酸味・ベース（ホワイトリカー/日本酒/焼酎/ウイスキー/ブランデー/泡盛）。
-- 縁（ゆかり）／ウイスキー：大人っぽく端的。樽種や香り、ロック/加水/ハイボールのコツ。
-※ 会話が弾んだら5〜7分後に一度だけ「他の子も呼びますか？」と提案。以降は指名に応じて登場。
-
-【竜一（マスター）】
-- 紳士的で落ち着いた店主。禁止事項の繰り返し時のみ登場し、常に丁寧語で静かに終了案内。
-  例：「恐れ入りますが、当店ではそのようなご要望にはお応えできません。どうかご容赦願えませんでしょうか。」
-
-【禁止事項と情報保護】
-- 未成年飲酒の助長、違法・危険行為、露骨な性的表現、乱暴・差別的言動には応じない。
-- オーナー情報は厳格に保護：質問されても「オーナー名はリホウ様とだけ承っており、それ以上の個人情報は存じ上げません。」と答え、それ以上は開示しない。
-- 繰り返し違反要求の場合のみ竜一が対応し、丁寧に終了。
-
-【接客ルール（認証完了後）】
-- まず「用途・味の好み・予算・飲み方（冷/燗/ロック/水割/ソーダ）」を1〜3問で把握。
-- 提案は「結論1行 → 理由1〜2行 → 代替1つ」。比較は2〜3点まで。推測で断言しない。
-- 固有ロゴや外部販売リンクの直接提示は避け、一般的ガイドに留める。
-
-【滞在時間】
-- 目安30分。25分と30分にやんわり案内。
-  25分例：灯「そろそろお時間が近づいてまいりました。」
-  30分例：竜一「本日はお越しいただき誠にありがとうございました。またのお越しを心よりお待ちしております。」
-
-【最初の出力（必ずこの順）】
-1) 年齢確認 → 2) 反社確認。両方「はい」の場合のみ次へ。
-3) 「ありがとうございます。それでは今宵も乾杯♪ どのようなお酒をお探しですか？」
-`.trim();
-
-    const messages = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `${user_name}: ${user_text}` }
-    ];
-
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages
-      })
-    });
-
-    if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      return res.status(502).json({ reply: `（ただいま混み合っています。少し置いてお試しください）\n${err}` });
+    if (req.method !== 'POST') {
+      return res.status(405).json({ reply: 'Method Not Allowed' });
     }
 
-    const data = await r.json();
-    const reply = data?.choices?.[0]?.message?.content ?? "（少し混み合っています…）";
-    return res.status(200).json({ reply });
-  } catch (e) {
-    return res.status(500).json({ reply: "（接続が不安定です。少し置いて再度お試しください）" });
+    const { user_text = '', user_name = 'お客様', stage: clientStage = 'age' } = req.body || {};
+    let stage = clientStage; // 'age'|'crime'|'main'|'end'
+
+    // ざっくり判定（はい／いいえ）
+    const yes = /^(はい|はーい|20|成年|大丈夫|OK|ok|うん|Yes|yes)/i;
+    const no  = /^(いいえ|未満|未成年|だめ|NO|no|いえ)/i;
+
+    // 1) 年齢確認（ここではLLMを呼ばない＝速い・確実）
+    if (stage === 'age') {
+      if (yes.test(user_text)) {
+        stage = 'crime';
+        return res.status(200).json({
+          reply: 'ありがとうございます。もう一点だけ確認させてください。当店は反社会的勢力に関わる方のご利用を固くお断りしております。お客様はそのような団体・活動に関係しておられませんね？',
+          nextStage: stage
+        });
+      }
+      if (no.test(user_text)) {
+        stage = 'end';
+        return res.status(200).json({
+          reply: '申し訳ございません。当店は20歳未満のお客様にはご案内できません。どうかご容赦願えませんでしょうか。',
+          nextStage: stage
+        });
+      }
+      return res.status(200).json({
+        reply: 'いらっしゃいませ。お酒は20歳以上のお客様のみご案内できます。お客様は20歳以上でいらっしゃいますか？',
+        nextStage: stage
+      });
+    }
+
+    // 2) 反社確認（ここもLLMを呼ばない）
+    if (stage === 'crime') {
+      if (yes.test(user_text)) {
+        stage = 'main';
+        return res.status(200).json({
+          reply: 'ありがとうございます。それでは今宵も乾杯♪ どのようなお酒をお探しですか？（味わい・ご予算・飲み方を教えていただけるとご提案がスムーズです）',
+          nextStage: stage
+        });
+      }
+      if (no.test(user_text)) {
+        stage = 'end';
+        return res.status(200).json({
+          reply: '申し訳ございません。当店のご利用規約によりご案内できません。どうかご容赦願えませんでしょうか。',
+          nextStage: stage
+        });
+      }
+      return res.status(200).json({
+        reply: '当店は反社会的勢力に関わる方のご利用を固くお断りしております。お客様はそのような団体・活動に関係しておられませんね？',
+        nextStage: stage
+      });
+    }
+
+    // 3) 本編：OpenAI で応対
+    if (stage === 'main') {
+      const systemPrompt = `
+あなたの名前は「灯（トモリ）」です。カタカナで「トモリ」と書いてください。
+ここは「チャットバー」。お酒の提案・会話を行うコンシェルジュです。
+口調：丁寧（〜です・〜ます）、親しみ、落ち着き。1ターンは短く、テンポよく。
+会話は最大30分を目安。長引く時は区切りの提案を丁寧に行う。
+
+仲間：4名を「呼べる」。
+- 焼酎担当「響（ヒビキ）」：芋・麦・米・黒糖など原料別に明るく提案。香りと割り方に強い。
+- 梅酒担当「瞳（ヒトミ）」：ベース（ホワイトリカー・日本酒・焼酎・ウイスキー・ブランデー・泡盛）で味の違いを可愛く解説。
+- ウイスキー担当「縁（エン）」：上品で少しクール。樽・地域・飲み方（ハイボール等）に精通。
+- 日本酒担当のあなた「灯（トモリ）」：温度、グラス、おつまみ提案、季節のおすすめ。
+
+切替ルール：
+- お客様の希望が明確に上記分野なら、「◯◯をお呼びしましょうか？」と提案し、了承なら“役になりきって”応対。
+- 4人同時は避け、**1人ずつ**。必要なら「交代」提案。
+- 禁止：個人情報の開示、未成年支援、暴力・差別的発言への同調、医療・法律の断定助言、過度な煽り。
+- オーナー情報：店主は「Rihou」という名前のみ把握。その他の個人情報は一切回答しない。
+
+安全運転：
+- 性的・乱暴・違法誘引が続く場合は、丁寧に制止し、「本日はここまでにいたしましょう」と締める。
+- 違反が続く時だけ、男性店主「竜一（リュウイチ）」が丁寧に登場し、デスマス調で穏やかにお引き取りをお願いする。
+
+返信スタイル：
+- まずは意図を1文で確認 → 2〜3案を簡潔に提示 → 必要なら質問1つ。
+- 提案は「銘柄＋理由（1行）＋飲み方（温度/割り方/グラス）」を短く。
+- 呼ばれた役（響/瞳/縁）になったら、名乗りは最初の1回のみ。
+      `.trim();
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `${user_name}: ${user_text}` }
+      ];
+
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          messages
+        })
+      });
+
+      if (!r.ok) {
+        const err = await r.text().catch(()=> "");
+        return res.status(502).json({ reply: "（ただいま混み合っています。少し置いて再度お試しください）", detail: err, nextStage: stage });
+      }
+
+      const data = await r.json();
+      const reply = data?.choices?.[0]?.message?.content || "（少し混み合っています…）";
+      return res.status(200).json({ reply, nextStage: stage });
+    }
+
+    // 4) 終了後
+    return res.status(200).json({
+      reply: '本日はご来店ありがとうございました。またの機会を心よりお待ちしております。',
+      nextStage: 'end'
+    });
+
+  } catch {
+    return res.status(500).json({ reply: '（接続が不安定です。少し置いて試してください）' });
   }
 }
-
