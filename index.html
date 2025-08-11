@@ -2,140 +2,132 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>灯（トモリ）と乾杯♪</title>
-<style>
-  :root{
-    --bg:#0f0f12; --panel:#181a20; --line:#2a2e39; --txt:#e9edf1;
-    --tomori:#ff8e6e; --hibiki:#4fc1ff; --hitomi:#8de26f; --enishi:#e2b76f;
-  }
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif}
-  .wrap{max-width:960px;margin:32px auto;padding:0 16px}
-  h1{font-size:22px;margin:0 0 16px}
-  .gate,.chat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
-  .q{margin:18px 0 6px;font-weight:600}
-  .btns{display:flex;gap:12px;flex-wrap:wrap}
-  button{cursor:pointer;background:#2a2e39;border:1px solid #353a47;color:var(--txt);padding:10px 14px;border-radius:10px}
-  button.primary{background:#4d64ff;border-color:#4d64ff}
-  .sys{font-size:12px;opacity:.7;margin-top:8px}
-  .log{height:52vh;overflow:auto;padding:12px;border:1px dashed #2d3241;border-radius:10px;background:#12141a;margin-bottom:12px}
-  .msg{margin:8px 0;padding:10px 12px;border-radius:10px;max-width:85%}
-  .me{background:#24314b;margin-left:auto}
-  .ai{background:#1a1e27;border:1px solid #2c3242}
-  .who{font-weight:700;margin-right:6px}
-  .w-tomori{color:var(--tomori)} .w-hibiki{color:var(--hibiki)} .w-hitomi{color:var(--hitomi)} .w-enishi{color:var(--enishi)}
-  .row{display:flex;gap:8px}
-  input[type=text]{flex:1;background:#11141b;border:1px solid #2a2e39;color:var(--txt);padding:12px;border-radius:10px}
-  .hint{font-size:12px;opacity:.65;margin-top:4px}
-</style>
+<link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-<div class="wrap">
-  <h1>灯（トモリ）と乾杯♪</h1>
+  <header class="top">
+    <h1>灯（トモリ）と乾杯♪</h1>
+    <div class="note">例：今日はどんな一日でした？ / ちょっと雑談してもいい？</div>
+  </header>
 
-  <!-- 入室ゲート -->
-  <div id="gate" class="gate" hidden>
-    <div style="font-weight:700;margin-bottom:6px">年齢・反社会的勢力に関する確認</div>
-    <div class="sys">※ブラウザに30日間だけ記録します（Cookie/LocalStorage）。</div>
-
-    <div class="q">① あなたは20歳以上ですか？</div>
-    <div class="btns">
-      <button id="age-yes">はい</button>
-      <button id="age-no">いいえ</button>
+  <main>
+    <div id="chat" class="chat"></div>
+    <div class="inputRow">
+      <textarea id="ta" rows="2" placeholder="メッセージを入力…" autocomplete="off"></textarea>
+      <button id="send">送信</button>
     </div>
-
-    <div class="q" style="margin-top:14px;">② あなたは反社会的勢力に関与していませんか？</div>
-    <div class="btns">
-      <button id="crime-yes">はい（関与していません）</button>
-      <button id="crime-no">いいえ（関与しています）</button>
-    </div>
-
-    <div id="gate-msg" class="sys"></div>
-  </div>
-
-  <!-- チャット -->
-  <div id="chat" class="chat" hidden>
-    <div class="log" id="log"></div>
-    <div class="row">
-      <input id="inp" type="text" placeholder="例：今日はどんな一日でした？ / ちょっと雑談してもいい？" />
-      <button id="send" class="primary">送信</button>
-    </div>
-    <div class="hint">※ 最長30分を目安に。お酒の話題は聞かれたら詳しく、それ以外は雑談でOK。</div>
-    <div class="hint"><a href="#" id="reset" style="color:#9ab;">確認状態をリセットする</a></div>
-  </div>
-</div>
+  </main>
 
 <script>
-const LS_KEY = "tomori_gate_ok_until";
-const LS_ID  = "tomori_cid";
-const until = +localStorage.getItem(LS_KEY)||0;
-const now   = Date.now();
-const cid   = localStorage.getItem(LS_ID) || (crypto.randomUUID?.() || String(Math.random()).slice(2));
-localStorage.setItem(LS_ID, cid);
+const API = "/api/tomori";
+const chat = document.getElementById("chat");
+const ta = document.getElementById("ta");
+const sendBtn = document.getElementById("send");
 
-// 30日有効
-function ok30d(){ localStorage.setItem(LS_KEY, String(Date.now()+30*24*60*60*1000)); }
+// 色
+const COLORS = { "灯":"#FF9C66", "瞳":"#8BC34A", "響":"#42A5F5", "縁":"#C586C0" };
+// 速度（サーバーから来たら上書き）
+let typingSpeed = { "灯":14, "瞳":14, "響":20, "縁":26 };
 
-const gate = document.getElementById('gate');
-const chat = document.getElementById('chat');
-const gateMsg = document.getElementById('gate-msg');
-function showChat(){ gate.hidden = true; chat.hidden = false; greet(); }
-function showGate(){ chat.hidden = true; gate.hidden = false; }
+// 会話ターンインデックス（ローテーション用）
+let turnIndex = 0;
 
-if (until > now) showChat(); else showGate();
-
-// ゲート制御
-document.getElementById('age-no').onclick   = ()=> gateMsg.textContent = "申し訳ありません。20歳未満のお客様はご利用いただけません。";
-let ageOK = false, crimeOK = false;
-document.getElementById('age-yes').onclick  = ()=>{ ageOK = true; gateMsg.textContent = "ありがとうございます。次の確認へ。"; tryEnter(); };
-document.getElementById('crime-no').onclick = ()=> gateMsg.textContent = "恐れ入りますがご利用はお断りしております。";
-document.getElementById('crime-yes').onclick= ()=>{ crimeOK = true; gateMsg.textContent = "確認ありがとうございます。"; tryEnter(); };
-function tryEnter(){ if(ageOK && crimeOK){ ok30d(); showChat(); } }
-
-// チャット
-const log = document.getElementById('log');
-function addMine(t){ const b=document.createElement('div'); b.className='msg me'; b.textContent=t; log.append(b); log.scrollTop=log.scrollHeight; }
-function addAI(role, t){
-  const wrap=document.createElement('div'); wrap.className='msg ai';
-  const who=document.createElement('span'); who.className='who w-'+role; who.textContent =
-    role==='tomori'?'【灯】':role==='hibiki'?'【響】':role==='hitomi'?'【瞳】':'【縁】';
-  wrap.append(who);
-  const span=document.createElement('span'); wrap.append(span); log.append(wrap);
-  // タイプ表示（役割ごとに速度を変える）
-  const base = role==='tomori'?24: role==='hitomi'?18: role==='hibiki'?28:20; // cps
-  let i=0; (function loop(){
-    span.textContent = t.slice(0, ++i);
-    log.scrollTop=log.scrollHeight;
-    if(i<t.length) setTimeout(loop, 1000/base * (1 + Math.random()*0.3));
-  })();
+function addUserBubble(text){
+  const wrap = document.createElement("div");
+  wrap.className = "bubble user";
+  const body = document.createElement("div");
+  body.className = "text";
+  body.textContent = text;
+  wrap.appendChild(body);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
 }
-async function greet(){
-  addAI('tomori','ありがとうございます。どうぞごゆっくり。雑談からでも大歓迎です。');
+
+async function typeOut(el, text, cps=18){
+  el.textContent = "";
+  for (const ch of text){
+    el.textContent += ch;
+    await new Promise(r=>setTimeout(r, 1000/Math.max(8,cps)));
+  }
 }
-async function askLLM(text){
-  const r = await fetch('/api/tomori', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ conversation_id: cid, user_text: text, stage:'main' })
-  });
-  if(!r.ok){ addAI('tomori','（接続が不安定です。少し置いてお試しください）'); return; }
+
+async function addBotBubble(speaker, text){
+  const wrap = document.createElement("div");
+  wrap.className = "bubble bot";
+  wrap.style.borderLeft = `4px solid ${COLORS[speaker]||"#ccc"}`;
+
+  const who = document.createElement("div");
+  who.className = "who";
+  who.style.color = COLORS[speaker]||"#999";
+  who.textContent = `【${speaker}】`;
+
+  const body = document.createElement("div");
+  body.className = "text";
+
+  wrap.appendChild(who);
+  wrap.appendChild(body);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+
+  const cps = typingSpeed[speaker] ?? 18;
+  await typeOut(body, text, cps);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function renderReply(payload){
+  if (payload.typing){
+    typingSpeed = {
+      "灯": payload.typing.Tomori ?? typingSpeed["灯"],
+      "瞳": payload.typing.Hitomi ?? typingSpeed["瞳"],
+      "響": payload.typing.Hibiki ?? typingSpeed["響"],
+      "縁": payload.typing.Enishi ?? typingSpeed["縁"]
+    };
+  }
+  await addBotBubble(payload.mainSpeaker||"灯", payload.reply);
+  if (payload.side){
+    await addBotBubble(payload.side.speaker, payload.side.line);
+  }
+}
+
+async function send(){
+  const text = ta.value.trim();
+  if (!text) return;
+  addUserBubble(text);
+  ta.value = "";
+
+  const r = await fetch(API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-turn-index": String(turnIndex)
+    },
+    body: JSON.stringify({
+      user_text: text,
+      user_name: "お客様"
+    })
+  }).catch(()=>null);
+
+  if (!r || !r.ok){
+    await addBotBubble("灯","（接続が不安定です。少し置いてお試しください）");
+    return;
+  }
   const data = await r.json();
-  const role = (data.speaker||'tomori');
-  addAI(role, data.reply||'……');
+  await renderReply(data);
+
+  // 次ターンへ
+  turnIndex = (turnIndex + 1) % 4;
 }
-document.getElementById('send').onclick = ()=>{
-  const v = document.getElementById('inp').value.trim();
-  if(!v) return;
-  document.getElementById('inp').value='';
-  addMine(v);
-  askLLM(v);
-};
-document.getElementById('inp').addEventListener('keydown', e=>{
-  if(e.key==='Enter'){ document.getElementById('send').click(); }
+
+sendBtn.addEventListener("click", send);
+ta.addEventListener("keydown", (e)=>{
+  if (e.key === "Enter" && !e.shiftKey){
+    e.preventDefault();
+    send();
+  }
 });
-document.getElementById('reset').onclick = (e)=>{
-  e.preventDefault(); localStorage.removeItem(LS_KEY); location.reload();
-};
 </script>
 </body>
 </html>
+
