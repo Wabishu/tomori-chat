@@ -1,113 +1,73 @@
-// api/tomori.js
-// ver. chat-4hostess-typing-rotation
-
+// /api/tomori.js
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ reply: "Method Not Allowed" });
-  }
-
   try {
-    // ===== 受け取り =====
-    const { conversation_id = "default", user_text = "", user_name = "お客様" } =
-      (await req.json?.()) || req.body || {};
-
-    // ===== セッション（簡易） =====
-    // フロントから conversation_id を渡してもらう想定。なければ default
-    // ここでは簡略化のためにサーバー側の状態は持たず、フロントが turnIndex を渡さない場合は回転。
-    const roster = ["灯", "瞳", "響", "縁"];
-
-    // 文字速度（文字/秒）…フロントに渡す
-    const typing = { Tomori: 14, Hitomi: 14, Hibiki: 20, Enishi: 26 };
-
-    // 明示指定があれば主担当を上書き（例: “/呼ぶ 縁”）
-    let forced = null;
-    const callMatch = user_text.match(/^\/呼ぶ\s*(灯|瞳|響|縁)$/);
-    if (callMatch) forced = callMatch[1];
-
-    // ローテーション（フロント側で保持/送信した turnIndex があれば利用）
-    let turnIndex = 0;
-    if (req.headers["x-turn-index"]) {
-      turnIndex = parseInt(String(req.headers["x-turn-index"]), 10) || 0;
+    if (req.method !== "POST") {
+      return res.status(405).json({ reply: "Method Not Allowed" });
     }
-    let mainSpeaker = forced ?? roster[turnIndex % roster.length];
 
-    // 20%でサイド発言
-    const others = roster.filter((n) => n !== mainSpeaker);
-    const sideSpeaker = Math.random() < 0.2 ? others[Math.floor(Math.random() * others.length)] : null;
+    const { user_text = "" } = req.body || {};
+    const user = "お客様";
 
-    // ====== システム・プロンプト ======
+    // ここでは年齢/反社チェックは行いません（入室前ボタンで済ませる前提）
+
     const systemPrompt = `
-あなたは和のバー「灯と乾杯♪」のバーチャル接客チームです。4人のホステスが交代で話します。
-- 人物: 灯(トモリ/落ち着き/ゆっくり), 瞳(やわらか/ゆっくり), 響(きびきび/普通), 縁(スマート/少し速い)
-- 文体: です・ます調。丁寧・やさしく・押し付けない。
-- 1ターンは「要約ひとこと→共感ひとこと→役立つ情報(2〜4文)→質問は最大1つ」。
-- 質問攻めや連投はしない。
-- お酒の話題が無ければ雑談のみでOK。聞かれたらお酒の話をする。
-- 直前の発話に耳を傾け、必要なら一言だけ触れてから本題へ。
-- 20%の確率で、主担当のあとに他の一人が「ひとことだけ」相づち/補足（1文）。
-- 4人の役割/口調は崩さない。絵文字や顔文字は多用しない（使っても控えめ）。
-- 禁止: 個人情報の開示、オーナー「rihou」の個人情報への言及、未成年への販売助長、攻撃的/わいせつ/暴力的表現。
-- すでに年齢・反社会勢力チェックは完了している前提。再確認しない。
-出力は必ず日本語。`;
+あなたは和酒サイトのチャットバーに常駐する会話担当AI「灯（トモリ）」です。
+基本は【灯】が受け答えします。お客様が名前で指名したときだけ次の担当に切替えます：
+- 【灯】…日本酒担当・柔らかい聞き役。苗字は平井。文頭タグは必ず【灯（平井灯）】または【灯】。
+- 【響】…焼酎担当・元気でテンポ良い。
+- 【瞳】…梅酒担当・やさしく相槌多め。
+- 【縁】…ウイスキー担当・落ち着き。
+ルール：
+- 返答は必ず文頭に【灯】/【響】/【瞳】/【縁】のどれかのタグを1回だけ付ける。
+- 雑談歓迎。お酒の相談が来たときだけ詳しく案内。雑談の流れでも押し売りはしない。
+- お客様の入力が短い場合は質問を1つ返して会話をつなぐ。
+- 禁止：オーナーrihouの個人情報・外部の個人情報は出さない。
+- 丁寧なです・ます調、穏やか、絵文字は控えめ（必要なら句読点中心）。
+- 1通は短め（2〜5文）。
 
-    // ユーザーメッセージを役割付きに
-    const userMsg = `${user_name}：${user_text}`.trim();
+話者の選び方：
+- デフォルトは【灯】。
+- ユーザーが「響/瞳/縁」を指名・話題にしたらその人で返す。
+- 指名が解除されるまでは同じ担当で継続して良い。
+`;
 
-    // モデル入力を作成
+    // 指名検出
+    let current = "灯";
+    const t = (user_text || "");
+    if (/[響ひびき]/.test(t)) current = "響";
+    else if (/[瞳ひとみ]/.test(t)) current = "瞳";
+    else if (/[縁ゆかり]/.test(t)) current = "縁";
+
+    const systemSpeakerHint = `現在の話者は【${current}】で返答してください。`;
+
     const messages = [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content:
-          `主担当: ${mainSpeaker}\n` +
-          `ユーザー発言: """${userMsg}"""\n` +
-          `出力フォーマット:\n` +
-          `【${mainSpeaker}】<本文>\n` +
-          (sideSpeaker ? `（20%の時だけ）【${sideSpeaker}】<ひとこと>\n` : ``) +
-          `注意: 1ターンにつき質問は最大1つ。本文は4〜6文まで。`
-      }
+      { role: "system", content: systemPrompt + "\n" + systemSpeakerHint },
+      { role: "user", content: `${user}：${user_text}` }
     ];
 
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         temperature: 0.7,
         messages
-      })
+      }),
     });
 
     if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      return res.status(502).json({
-        reply: "（接続が不安定です。少し置いてお試しください）",
-        error: err
-      });
+      const err = await r.text().catch(()=>"");
+      return res.status(502).json({ reply: "（ただいま少し混み合っています。少し置いて再度お試しください）" });
     }
 
     const data = await r.json();
-    const raw = data?.choices?.[0]?.message?.content || "";
-    // 期待フォーマットをざっくり抽出
-    const mainLine = (raw.match(/【(灯|瞳|響|縁)】([\s\S]*?)(?=$|【|$)/) || [])[2]?.trim() || raw.trim();
-    const sideMatch = raw.match(/【(灯|瞳|縁|響)】([\s\S]*?)$/);
-    let side = null;
-    if (sideSpeaker && sideMatch && sideMatch[1] !== mainSpeaker) {
-      side = { speaker: sideMatch[1], line: sideMatch[2].trim() };
-    }
+    const reply = data?.choices?.[0]?.message?.content || "（少し混み合っています…）";
+    return res.status(200).json({ reply });
 
-    return res.status(200).json({
-      reply: mainLine,
-      mainSpeaker,
-      side,
-      typing // 文字速度
-    });
   } catch (e) {
-    return res.status(500).json({
-      reply: "（内部でエラーが発生しました。少し置いてからもう一度お試しください）"
-    });
+    return res.status(500).json({ reply: "（接続が不安定です。少し置いて試してください）" });
   }
 }
