@@ -1,136 +1,117 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>チャットルーム</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>灯（トモリ）と乾杯♪</title>
 <style>
-body {
-    font-family: Arial, sans-serif;
-    background-color: #1e1e1e;
-    color: #fff;
-    margin: 0;
-    padding: 0;
-}
-.hidden {
-    display: none;
-}
-#check-container {
-    padding: 20px;
-    max-width: 500px;
-    margin: auto;
-    background: #2c2c2c;
-    border-radius: 10px;
-    margin-top: 50px;
-}
-button {
-    padding: 8px 16px;
-    margin: 5px;
-    cursor: pointer;
-    border: none;
-    border-radius: 5px;
-}
-.chat-container {
-    max-width: 800px;
-    margin: auto;
-    padding: 20px;
-}
-.message {
-    padding: 10px;
-    margin: 8px 0;
-    border-radius: 5px;
-}
-.tomori { background-color: #ff6666; color: white; }
-.hibiki { background-color: #66a3ff; color: white; }
-.hitomi { background-color: #ffcc66; color: black; }
-.en { background-color: #99cc99; color: black; }
-textarea {
-    width: 100%;
-    height: 60px;
-    margin-top: 10px;
-}
+  :root{
+    --bg:#121212; --panel:#1e1e1e; --line:#2b2b2b; --fg:#e9e9e9;
+    --user:#3a3a3a;
+    --tomori:#ff6666; /* 灯 */
+    --hibiki:#66a3ff; /* 響 */
+    --hitomi:#ffcc66; /* 瞳 */
+    --en:#99cc99;     /* 縁 */
+  }
+  html,body{height:100%; background:var(--bg); color:var(--fg); margin:0; font-family:ui-sans-serif,system-ui,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;}
+  .wrap{max-width:960px; margin:0 auto; padding:20px; box-sizing:border-box;}
+  h1{font-size:22px; margin:0 0 10px; font-weight:700}
+  .note{opacity:.7; font-size:12px; margin-bottom:14px}
+  .chat{border:1px solid var(--line); background:var(--panel); border-radius:12px; height:60vh; overflow:auto; padding:12px}
+  .message{padding:10px 12px; border-radius:8px; margin:8px 0; line-height:1.6; word-break:break-word; white-space:pre-wrap}
+  .user{background:var(--user); color:#fff}
+  .tomori{background:var(--tomori); color:#fff}
+  .hibiki{background:var(--hibiki); color:#fff}
+  .hitomi{background:var(--hitomi); color:#000}
+  .en{background:var(--en); color:#000}
+  .row{display:flex; gap:8px; margin-top:10px}
+  textarea{flex:1; resize:none; min-height:56px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#151515; color:var(--fg); outline:none}
+  button{padding:10px 16px; border:0; border-radius:8px; background:#2b6fff; color:#fff; font-weight:700; cursor:pointer}
+  button:disabled{opacity:.6; cursor:not-allowed}
+  .sys{opacity:.7; font-size:12px; text-align:center; margin-top:6px}
 </style>
 </head>
 <body>
+<div class="wrap">
+  <h1>灯（トモリ）と乾杯♪</h1>
+  <div class="note">※ 改行せずに送る：Enter（改行は Shift+Enter）</div>
 
-<!-- 年齢・反社チェック -->
-<div id="check-container">
-    <div id="step1">
-        <h2>あなたは20歳以上ですか？</h2>
-        <button onclick="checkStep(1,true)">はい</button>
-        <button onclick="checkStep(1,false)">いいえ</button>
-    </div>
-    <div id="step2" class="hidden">
-        <h2>あなたは反社会的勢力に関与していませんか？</h2>
-        <button onclick="checkStep(2,true)">はい</button>
-        <button onclick="checkStep(2,false)">いいえ</button>
-    </div>
-</div>
+  <div id="chat" class="chat"></div>
 
-<!-- チャット画面 -->
-<div class="chat-container hidden" id="chat-container">
-    <div id="chat-box"></div>
-    <textarea id="message-input" placeholder="メッセージを入力…"></textarea>
-    <button id="sendBtn">送信</button>
+  <div class="row">
+    <textarea id="ta" placeholder="例：今日はどんな一日でした？ / ちょっと雑談してもいい？"></textarea>
+    <button id="send">送信</button>
+  </div>
+  <div class="sys" id="sys"></div>
 </div>
 
 <script>
-function checkStep(step, answer) {
-    if (!answer) {
-        alert("申し訳ありませんが、ご利用いただけません。");
-        return;
-    }
-    if (step === 1) {
-        document.getElementById("step1").classList.add("hidden");
-        document.getElementById("step2").classList.remove("hidden");
-    } else if (step === 2) {
-        localStorage.setItem("checkPassed", Date.now());
-        document.getElementById("check-container").classList.add("hidden");
-        document.getElementById("chat-container").classList.remove("hidden");
-    }
+const chat = document.getElementById('chat');
+const ta   = document.getElementById('ta');
+const btn  = document.getElementById('send');
+const sys  = document.getElementById('sys');
+
+function bubble(text, cls){
+  const el = document.createElement('div');
+  el.className = 'message ' + cls;
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
 }
 
-// 30日間記憶
-window.onload = function() {
-    const passedTime = localStorage.getItem("checkPassed");
-    if (passedTime && Date.now() - passedTime < 30*24*60*60*1000) {
-        document.getElementById("check-container").classList.add("hidden");
-        document.getElementById("chat-container").classList.remove("hidden");
-    }
-};
+function clsFromTag(reply){
+  const m = reply.match(/^【(.+?)】/);
+  if(!m) return 'tomori';
+  const t = m[1];
+  if(t.includes('灯')) return 'tomori';
+  if(t.includes('響')) return 'hibiki';
+  if(t.includes('瞳')) return 'hitomi';
+  if(t.includes('縁')) return 'en';
+  return 'tomori';
+}
+function stripTag(s){ return s.replace(/^【.+?】\s*/,''); }
 
-// チャット処理
-document.getElementById("sendBtn").addEventListener("click", send);
-document.getElementById("message-input").addEventListener("keydown", function(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        send();
+async function send(){
+  const text = ta.value.trim();
+  if(!text) return;
+
+  bubble(text,'user');
+  ta.value = '';
+  btn.disabled = true; sys.textContent = '…送信中';
+
+  try{
+    const r = await fetch('/api/tomori.js', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user_text:text })
+    });
+    if(!r.ok){
+      bubble('（接続が不安定です。少し置いてお試しください）','tomori');
+      return;
     }
+    const { reply } = await r.json();
+    const cls = clsFromTag(reply);
+    const body = stripTag(reply);
+    bubble(body, cls);
+  }catch(e){
+    bubble('（通信エラーです）','tomori');
+  }finally{
+    btn.disabled = false; sys.textContent = '';
+    ta.focus();
+  }
+}
+
+btn.addEventListener('click', send);
+ta.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault(); send();
+  }
 });
 
-function send() {
-    const input = document.getElementById("message-input");
-    const text = input.value.trim();
-    if (text === "") return;
-
-    const characters = ["tomori", "hibiki", "hitomi", "en"];
-    const randomCharacter = characters[Math.floor(Math.random() * characters.length)];
-
-    const msg = document.createElement("div");
-    msg.className = "message " + randomCharacter;
-    msg.textContent = getName(randomCharacter) + "：「" + text + "」";
-    document.getElementById("chat-box").appendChild(msg);
-    input.value = "";
-}
-
-function getName(key) {
-    switch (key) {
-        case "tomori": return "灯（平井灯）";
-        case "hibiki": return "響";
-        case "hitomi": return "瞳";
-        case "en": return "縁";
-    }
-}
+// 初回の軽い挨拶（APIは呼ばない）
+bubble('いらっしゃいませ。どうぞごゆっくり。雑談からでも大歓迎です。','tomori');
 </script>
-
 </body>
 </html>
+
